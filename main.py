@@ -9,6 +9,7 @@ from datetime import datetime
 from pynput import keyboard
 import socket
 import sys
+import os
 
 _lock_socket = None
 
@@ -69,8 +70,10 @@ class ScreenRecorder:
         self.btn.config(text="", bg="green")
         
         # Налаштування файлу
+        save_dir = os.path.join(os.path.expanduser("~"), "Desktop", "ScreenRec")
+        os.makedirs(save_dir, exist_ok=True)
         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        filename = f"record_{timestamp}.mp4"
+        filename = os.path.join(save_dir, f"record_{timestamp}.mp4")
         screen_size = pyautogui.size()
         fourcc = cv2.VideoWriter_fourcc(*"mp4v")
         self.out = cv2.VideoWriter(filename, fourcc, 20.0, screen_size)
