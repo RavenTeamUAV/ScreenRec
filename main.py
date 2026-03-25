@@ -1,4 +1,5 @@
 import tkinter as tk
+from tkinter import messagebox
 import cv2
 import numpy as np
 import pyautogui
@@ -6,6 +7,19 @@ from PIL import ImageGrab
 import threading
 from datetime import datetime
 from pynput import keyboard
+import socket
+import sys
+
+_lock_socket = None
+
+def acquire_single_instance_lock():
+    global _lock_socket
+    _lock_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        _lock_socket.bind(('127.0.0.1', 47892))
+    except OSError:
+        messagebox.showerror("ScreenRec", "Програма вже запущена!")
+        sys.exit(0)
 
 class ScreenRecorder:
     def __init__(self):
@@ -105,5 +119,6 @@ class ScreenRecorder:
         self.root.mainloop()
 
 if __name__ == "__main__":
+    acquire_single_instance_lock()
     app = ScreenRecorder()
     app.run()
