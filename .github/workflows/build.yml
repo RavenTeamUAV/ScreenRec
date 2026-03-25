@@ -23,7 +23,7 @@ jobs:
 
       - name: Build EXE
         run: |
-          pyinstaller --onefile --windowed --name ScreenRec --hidden-import pynput.keyboard._win32 --hidden-import pynput.mouse._win32 --exclude-module matplotlib --exclude-module scipy --exclude-module PyQt5 --exclude-module PySide2 --exclude-module IPython main.py
+          pyinstaller --onefile --windowed --name ScreenRec --icon icon.ico --add-data "icon.ico;." --hidden-import pynput.keyboard._win32 --hidden-import pynput.mouse._win32 --exclude-module matplotlib --exclude-module scipy --exclude-module PyQt5 --exclude-module PySide2 --exclude-module IPython main.py
 
       - name: Upload EXE
         uses: actions/upload-artifact@v4

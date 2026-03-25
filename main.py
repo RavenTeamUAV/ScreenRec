@@ -26,6 +26,13 @@ class ScreenRecorder:
     def __init__(self):
         self.root = tk.Tk()
         self.root.title("Rec")
+
+        # Іконка вікна
+        try:
+            icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "icon.ico")
+            self.root.iconbitmap(icon_path)
+        except Exception:
+            pass
         
         # Параметри вікна
         self.root.attributes('-topmost', True)
