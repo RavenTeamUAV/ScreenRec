@@ -2,7 +2,7 @@ import tkinter as tk
 from tkinter import messagebox
 import cv2
 import numpy as np
-import pyautogui
+import pygetwindow as gw
 from PIL import ImageGrab
 import threading
 from datetime import datetime
@@ -52,6 +52,7 @@ class ScreenRecorder:
         self.is_recording = False
         self.out = None
         self.blink_state = True
+        self.target_win = None
         
         # Кнопка
         self.btn = tk.Button(self.root, text="REC (F9)", bg="red", fg="white", 
@@ -70,24 +71,32 @@ class ScreenRecorder:
 
     def start_recording(self):
         if self.is_recording: return
+
+        # Шукаємо вікно OmniViewerHD
+        wins = gw.getWindowsWithTitle('OmniViewerHD')
+        if not wins:
+            messagebox.showerror("ScreenRec", "Вікно OmniViewerHD не знайдено!\nЗапустіть програму і спробуйте ще раз.")
+            return
+        self.target_win = wins[0]
+
         self.is_recording = True
-        
+
         # Згортаємо у точку
         self.root.geometry(f"{self.dot_size}x{self.dot_size}+{self.x}+{self.y}")
         self.btn.config(text="", bg="green")
-        
-        # Налаштування файлу
+
+        # Налаштування файлу — розмір під вікно OmniViewerHD
         save_dir = os.path.join(os.path.expanduser("~"), "Desktop", "ScreenRec")
         os.makedirs(save_dir, exist_ok=True)
         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         filename = os.path.join(save_dir, f"record_{timestamp}.mp4")
-        screen_size = pyautogui.size()
+        win_size = (self.target_win.width, self.target_win.height)
         fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-        self.out = cv2.VideoWriter(filename, fourcc, 20.0, screen_size)
-        
+        self.out = cv2.VideoWriter(filename, fourcc, 20.0, win_size)
+
         # Запуск фонових процесів
         threading.Thread(target=self.record_loop, daemon=True).start()
-        self.blink() # Запуск мигання
+        self.blink()
         print(f"Запис почато: {filename}")
 
     def blink(self):
@@ -99,7 +108,16 @@ class ScreenRecorder:
 
     def record_loop(self):
         while self.is_recording:
-            img = ImageGrab.grab()
+            try:
+                bbox = (
+                    self.target_win.left,
+                    self.target_win.top,
+                    self.target_win.right,
+                    self.target_win.bottom,
+                )
+                img = ImageGrab.grab(bbox=bbox)
+            except Exception:
+                break
             frame = np.array(img.convert('RGB'))
             frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
             if self.out:
