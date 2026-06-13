@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Віртуальні середовища
+.venv/
+.venv-raptor/
+venv/
+
+# Збірки PyInstaller
+build/
+dist/
+
+# Тимчасові
+*.log

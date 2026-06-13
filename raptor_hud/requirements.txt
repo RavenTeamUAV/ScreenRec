@@ -1,0 +1,5 @@
+# Залежності raptor_hud (перевірені версії; кросплатформені — macOS/Windows/Linux)
+PySide6>=6.11            # GUI / QPainter-оверлей
+pymavlink>=2.4           # телеметрія MavLink (UDP/Serial), Gimbal v2, Camera v2
+opencv-python-headless>=4.10  # відеопотік RTSP H.264/H.265 (вбудований FFmpeg)
+numpy>=2.0
