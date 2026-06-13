@@ -10,7 +10,7 @@ from __future__ import annotations
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QDialog, QLineEdit, QLabel, QPushButton, QVBoxLayout, QHBoxLayout,
-    QFormLayout, QFrame, QComboBox)
+    QFormLayout, QFrame, QComboBox, QCheckBox)
 
 from . import coords
 
@@ -39,11 +39,18 @@ QComboBox:focus { border: 1px solid #00c878; }
 QComboBox QAbstractItemView {
     background: #0d0d0d; color: #eaeaea; selection-background-color: #006b40;
 }
+QCheckBox { color: #cfcfcf; font-size: 13px; spacing: 8px; }
+QCheckBox::indicator {
+    width: 16px; height: 16px; border: 1px solid #3a3a3a;
+    border-radius: 3px; background: #0d0d0d;
+}
+QCheckBox::indicator:checked { background: #00c878; border: 1px solid #00c878; }
 """
 
 
 class SettingsDialog(QDialog):
-    def __init__(self, rtsp: str, mavlink: str, coord_fmt: str = "DD", parent=None):
+    def __init__(self, rtsp: str, mavlink: str, coord_fmt: str = "DD",
+                 rec_hud: bool = True, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Налаштування")
         self.setModal(True)
@@ -61,11 +68,17 @@ class SettingsDialog(QDialog):
         idx = coords.FORMATS.index(coord_fmt) if coord_fmt in coords.FORMATS else 0
         self._coords.setCurrentIndex(idx)
 
+        self._rec_hud = QCheckBox("Накладати HUD-оверлей на запис")
+        self._rec_hud.setChecked(rec_hud)
+        self._rec_hud.setToolTip(
+            "Увімк.: у відео вшивається телеметрія. Вимк.: чистий відеопотік.")
+
         form = QFormLayout()
         form.setSpacing(8)
         form.addRow(QLabel("RTSP-потік (відео):"), self._rtsp)
         form.addRow(QLabel("MavLink (телеметрія):"), self._mavlink)
         form.addRow(QLabel("Система координат:"), self._coords)
+        form.addRow(QLabel("Запис відео:"), self._rec_hud)
 
         hint = QLabel("Порожнє поле → демо-режим (тестовий кадр / мок-телеметрія).\n"
                       "MavLink: udpin:0.0.0.0:14550 · udp:127.0.0.1:14550 · "
@@ -97,7 +110,7 @@ class SettingsDialog(QDialog):
         root.addWidget(line)
         root.addLayout(btns)
 
-    def values(self) -> tuple[str, str, str]:
-        """Повертає (rtsp_url, mavlink_conn, coord_fmt)."""
+    def values(self) -> tuple[str, str, str, bool]:
+        """Повертає (rtsp_url, mavlink_conn, coord_fmt, record_hud)."""
         return (self._rtsp.text().strip(), self._mavlink.text().strip(),
-                self._coords.currentData())
+                self._coords.currentData(), self._rec_hud.isChecked())

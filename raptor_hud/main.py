@@ -16,15 +16,17 @@ import argparse
 import os
 import sys
 
-from PySide6.QtCore import Qt, QSettings
+from PySide6.QtCore import Qt, QSettings, QTimer, QPoint
+from PySide6.QtGui import QImage, QRegion
 from PySide6.QtWidgets import (QApplication, QWidget, QStackedLayout,
-                               QPushButton)
+                               QPushButton, QLabel, QMessageBox)
 
 from .hud_overlay import HudOverlay
 from .video_view import VideoView, RtspFrameSource
 from .telemetry import MockSource, MavlinkSource
 from .settings_dialog import SettingsDialog
 from .conn_status import ConnStatus
+from .recorder import Recorder
 
 ASSETS = os.path.join(os.path.dirname(__file__), "assets")
 
@@ -35,6 +37,32 @@ QPushButton {
     font-size: 18px;
 }
 QPushButton:hover { border: 1px solid #00c878; }
+"""
+
+# Кнопка запису: сіра в стані спокою, червона під час запису.
+_REC_QSS = """
+QPushButton {
+    background: rgba(8,8,8,150); color: #ff5555;
+    border: 1px solid rgba(255,255,255,40); border-radius: 5px;
+    font-size: 16px;
+}
+QPushButton:hover { border: 1px solid #ff5555; }
+"""
+_REC_ON_QSS = """
+QPushButton {
+    background: rgba(200,40,40,200); color: #ffffff;
+    border: 1px solid #ff5555; border-radius: 5px;
+    font-size: 16px;
+}
+"""
+
+# Індикатор «● REC mm:ss» — окремий віджет вікна, у запис НЕ потрапляє.
+_REC_LABEL_QSS = """
+QLabel {
+    color: #ff4040; background: rgba(8,8,8,170);
+    border: 1px solid rgba(255,64,64,120); border-radius: 4px;
+    padding: 3px 9px; font-size: 13px; font-weight: bold;
+}
 """
 
 
@@ -62,6 +90,8 @@ class MainWindow(QWidget):
         self._mavlink = mavlink if mavlink is not None else self._settings.value("mavlink", "", str)
         self._coord_fmt = self._settings.value("coord_fmt", "DD", str)
         self.overlay.coord_fmt = self._coord_fmt
+        # Чи накладати HUD-оверлей на запис (інакше — чистий відеопотік)
+        self._rec_hud = self._settings.value("rec_hud", True, bool)
 
         self.video_src = None
         self.tlm = None
@@ -79,6 +109,31 @@ class MainWindow(QWidget):
         self.gear.setToolTip("Налаштування підключення")
         self.gear.clicked.connect(self._open_settings)
         self.gear.raise_()
+
+        # Кнопка запису (⏺) — ліворуч від ⚙
+        self.rec_btn = QPushButton("⏺", self)
+        self.rec_btn.setObjectName("rec")
+        self.rec_btn.setStyleSheet(_REC_QSS)
+        self.rec_btn.setFixedSize(40, 34)
+        self.rec_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.rec_btn.setToolTip("Запис відео на ПК (R)")
+        self.rec_btn.clicked.connect(self._toggle_record)
+        self.rec_btn.raise_()
+
+        # Індикатор запису «● REC mm:ss» — згори по центру
+        self.rec_label = QLabel("", self)
+        self.rec_label.setStyleSheet(_REC_LABEL_QSS)
+        self.rec_label.setVisible(False)
+        self.rec_label.raise_()
+
+        # Рекордер композита (відео + HUD) → MP4
+        self.recorder = Recorder(self._grab_frame, fps=25)
+        self.recorder.state_changed.connect(self._on_rec_state)
+        self.recorder.error.connect(self._on_rec_error)
+
+        self._rec_clock = QTimer(self)
+        self._rec_clock.setInterval(500)
+        self._rec_clock.timeout.connect(self._update_rec_label)
 
         self._apply_sources()
 
@@ -120,24 +175,86 @@ class MainWindow(QWidget):
             self.conn.set_tlm("online" if state.link_online else "offline")
 
     def _open_settings(self) -> None:
-        dlg = SettingsDialog(self._rtsp, self._mavlink, self._coord_fmt, self)
+        dlg = SettingsDialog(self._rtsp, self._mavlink, self._coord_fmt,
+                             self._rec_hud, self)
         if dlg.exec():
-            self._rtsp, self._mavlink, self._coord_fmt = dlg.values()
+            (self._rtsp, self._mavlink, self._coord_fmt,
+             self._rec_hud) = dlg.values()
             self._settings.setValue("rtsp", self._rtsp)
             self._settings.setValue("mavlink", self._mavlink)
             self._settings.setValue("coord_fmt", self._coord_fmt)
+            self._settings.setValue("rec_hud", self._rec_hud)
             self.overlay.coord_fmt = self._coord_fmt
             self.overlay.update()
             self._apply_sources()
 
     # ------------------------------------------------------------------ #
-    def resizeEvent(self, e) -> None:
-        super().resizeEvent(e)
+    #  Запис відео на ПК                                                  #
+    # ------------------------------------------------------------------ #
+    def _grab_frame(self) -> QImage:
+        """Кадр для запису: шар відео, і — за `_rec_hud` — поверх HUD-оверлей.
+
+        Кнопки керування та індикатори статусу в кадр не потрапляють у будь-якому
+        разі (рендеряться лише шари відео й оверлею, а не все вікно)."""
+        size = self.video.size()
+        if size.width() <= 0 or size.height() <= 0:
+            return QImage()
+        img = QImage(size, QImage.Format.Format_RGB888)
+        img.fill(Qt.GlobalColor.black)
+        self.video.render(img, QPoint(0, 0), QRegion(),
+                          QWidget.RenderFlag.DrawChildren)
+        if self._rec_hud:
+            self.overlay.render(img, QPoint(0, 0), QRegion(),
+                                QWidget.RenderFlag.DrawChildren)
+        return img
+
+    def _toggle_record(self) -> None:
+        self.recorder.toggle()
+
+    def _on_rec_state(self, recording: bool) -> None:
+        self.rec_btn.setText("⏹" if recording else "⏺")
+        self.rec_btn.setStyleSheet(_REC_ON_QSS if recording else _REC_QSS)
+        self.rec_btn.setToolTip(
+            "Зупинити запис (R)" if recording else "Запис відео на ПК (R)")
+        self.rec_label.setVisible(recording)
+        if recording:
+            self._update_rec_label()
+            self._rec_clock.start()
+        else:
+            self._rec_clock.stop()
+        self._relayout_top()
+
+    def _update_rec_label(self) -> None:
+        secs = int(self.recorder.elapsed_s)
+        m, s = divmod(secs, 60)
+        self.rec_label.setText(f"● REC   {m:02d}:{s:02d}")
+        self.rec_label.adjustSize()
+        self._relayout_top()
+
+    def _on_rec_error(self, msg: str) -> None:
+        self._rec_clock.stop()
+        self.rec_label.setVisible(False)
+        self.rec_btn.setText("⏺")
+        self.rec_btn.setStyleSheet(_REC_QSS)
+        QMessageBox.warning(self, "Запис відео", msg)
+
+    # ------------------------------------------------------------------ #
+    def _relayout_top(self) -> None:
         gx = self.width() - self.gear.width() - 14
         self.gear.move(gx, 14)
-        self.conn.move(gx - self.conn.width() - 8, 14)
+        rx = gx - self.rec_btn.width() - 8
+        self.rec_btn.move(rx, 14)
+        self.conn.move(rx - self.conn.width() - 8, 14)
+        # індикатор REC — по центру верхнього краю
+        self.rec_label.move((self.width() - self.rec_label.width()) // 2, 14)
         self.conn.raise_()
         self.gear.raise_()
+        self.rec_btn.raise_()
+        self.rec_label.raise_()
+
+    def resizeEvent(self, e) -> None:
+        super().resizeEvent(e)
+        self._relayout_top()
 
     def keyPressEvent(self, e) -> None:
         if e.key() in (Qt.Key.Key_Escape, Qt.Key.Key_Q):
@@ -147,6 +264,13 @@ class MainWindow(QWidget):
                 self.showNormal()
             else:
                 self.showFullScreen()
+        elif e.key() == Qt.Key.Key_R:
+            self._toggle_record()
+
+    def closeEvent(self, e) -> None:
+        if self.recorder.is_recording:
+            self.recorder.stop()
+        super().closeEvent(e)
 
 
 def main() -> int:
