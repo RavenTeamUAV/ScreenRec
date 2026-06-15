@@ -12,13 +12,12 @@ from PySide6.QtWidgets import QWidget
 from . import theme
 
 _COLORS = {
-    "demo":       QColor(150, 150, 150),
     "connecting": QColor(255, 138, 0),
     "online":     QColor(0, 200, 120),
     "offline":    QColor(225, 55, 45),
 }
 _WORDS = {
-    "demo": "ДЕМО", "connecting": "З'ЄДНАННЯ…",
+    "connecting": "З'ЄДНАННЯ…",
     "online": "ONLINE", "offline": "OFFLINE",
 }
 
@@ -28,8 +27,8 @@ class ConnStatus(QWidget):
         super().__init__(parent)
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         self.setFixedSize(186, 50)
-        self._video = "demo"
-        self._tlm = "demo"
+        self._video = "offline"
+        self._tlm = "offline"
 
     def set_video(self, state: str) -> None:
         self._video = state
@@ -53,7 +52,7 @@ class ConnStatus(QWidget):
         p.end()
 
     def _row(self, p: QPainter, cy: float, label: str, state: str) -> None:
-        col = _COLORS.get(state, _COLORS["demo"])
+        col = _COLORS.get(state, _COLORS["offline"])
         word = _WORDS.get(state, "—")
 
         p.setFont(theme.label_font(10))

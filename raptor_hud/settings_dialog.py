@@ -81,8 +81,10 @@ class SettingsDialog(QDialog):
         form.addRow(QLabel("Запис відео:"), self._rec_hud)
 
         hint = QLabel("Порожнє поле → демо-режим (тестовий кадр / мок-телеметрія).\n"
+                      "Відео: rtsp://… (H.264/265) або rtp://0.0.0.0:11025 "
+                      "(TRIP unicast) · rtp://225.1.2.3:11025 (multicast).\n"
                       "MavLink: udpin:0.0.0.0:14550 · udp:127.0.0.1:14550 · "
-                      "/dev/tty.usbserial,57600")
+                      "COM3,57600")
         hint.setObjectName("hint")
         hint.setWordWrap(True)
 

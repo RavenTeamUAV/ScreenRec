@@ -1,8 +1,7 @@
 """Модель телеметрії та джерела даних.
 
 `TelemetryState` — єдина структура, яку споживає HUD.
-`MockSource` — генерує правдоподібні анімовані дані для макета.
-`MavlinkSource` — заготовка під реальне MavLink UDP-підключення (Raptor 360).
+`MavlinkSource` — реальне MavLink UDP/Serial підключення (Raptor 360 / ArduPlane).
 
 Усі джерела успадковують `TelemetrySource(QObject)` і випромінюють сигнал
 `updated(TelemetryState)` приблизно 5 разів на секунду.
@@ -14,6 +13,16 @@ import time
 from dataclasses import dataclass, field
 
 from PySide6.QtCore import QObject, QTimer, Signal
+
+
+def _haversine(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """Відстань між двома точками (м), WGS-84 сфера."""
+    R = 6_371_000.0
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dp = math.radians(lat2 - lat1)
+    dl = math.radians(lon2 - lon1)
+    a = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
+    return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
 
 def _quat_to_euler(q) -> tuple[float, float, float]:
@@ -44,6 +53,11 @@ class TelemetryState:
     pitch: float = 0.0           # градуси
     cam_pan: float = 0.0         # кут камери по азимуту (gimbal), градуси
     cam_tilt: float = 0.0        # нахил камери (gimbal), градуси
+    # --- Сенсор NextVision (з KLV ST 0601 / NextVision-тегів) ---
+    fov: float = 0.0             # горизонтальний кут поля зору, градуси
+    sensor_ch: str = ""          # активний канал: "EO" / "IR"
+    cam_mode: str = ""           # режим спостереження (LOCAL POS / TRACK / …)
+    tracker: str = ""            # стан трекера (IDLE / TRACKING / …)
     # --- Автотрекінг TRIP 5 (CAMERA_TRACKING_IMAGE_STATUS) ---
     track_active: bool = False   # чи активне стеження за об'єктом
     track_cx: float = 0.5        # центр цілі X (нормовано 0..1 від кадру)
@@ -64,6 +78,13 @@ class TelemetryState:
     link_online: bool = False
     flight_time_s: int = 0       # секунди в польоті
     gps_sats: int = 0
+    # --- Дистанції ---
+    dist_home: float = 0.0       # м до точки зльоту (HOME_POSITION)
+    dist_gcs: float = 0.0        # м до GCS (GLOBAL_POSITION_INT від sysid GCS)
+    home_lat: float = 0.0
+    home_lon: float = 0.0
+    gcs_lat: float = 0.0
+    gcs_lon: float = 0.0
 
 
 class TelemetrySource(QObject):
@@ -74,63 +95,6 @@ class TelemetrySource(QObject):
 
     def stop(self) -> None:
         pass
-
-
-class MockSource(TelemetrySource):
-    """Анімовані тестові дані для візуального макета."""
-
-    def __init__(self, hz: float = 5.0, parent=None):
-        super().__init__(parent)
-        self._t0 = time.monotonic()
-        self._timer = QTimer(self)
-        self._timer.setInterval(int(1000 / hz))
-        self._timer.timeout.connect(self._tick)
-        self.state = TelemetryState(
-            armed=True, flight_mode="FBWB", link_online=True,
-            voltage=50.4, battery_remaining=78, gps_sats=14,
-            lat=48.5132, lon=37.6680,
-        )
-
-    def start(self) -> None:
-        self._timer.start()
-
-    def stop(self) -> None:
-        self._timer.stop()
-
-    def _tick(self) -> None:
-        t = time.monotonic() - self._t0
-        s = self.state
-        s.airspeed = 21.0 + 1.5 * math.sin(t * 0.4)
-        s.groundspeed = 15.0 + 1.2 * math.sin(t * 0.4 + 1.0)
-        s.alt_asl = 1040 + 12 * math.sin(t * 0.15)
-        s.alt_wgs = s.alt_asl + 6
-        s.alt_rel = 320 + 12 * math.sin(t * 0.15)
-        s.dist_wp = max(0.0, 1200 + 1200 * math.sin(t * 0.05))
-        s.climb = 1.2 * math.cos(t * 0.15)
-        s.current = 44.0 + 4.0 * math.sin(t * 0.8)
-        s.voltage = 50.4 - 0.6 * math.sin(t * 0.05)
-        s.heading = (t * 6.0) % 360.0
-        s.roll = 8 * math.sin(t * 0.5)
-        s.pitch = 4 * math.sin(t * 0.3)
-        s.cam_pan = 45 * math.sin(t * 0.2)
-        s.cam_tilt = -30 + 20 * math.sin(t * 0.12)
-        s.flight_time_s = 27 * 60 + int(t)
-        # автотрекінг: ціль плавно «гуляє» кадром (демо)
-        s.track_active = True
-        s.track_cx = 0.5 + 0.18 * math.sin(t * 0.35)
-        s.track_cy = 0.45 + 0.10 * math.cos(t * 0.27)
-        s.track_w = 0.05 + 0.008 * math.sin(t * 0.9)
-        s.track_h = 0.065 + 0.008 * math.cos(t * 0.9)
-        # геолокація цілі (демо): зміщення від апарата + похила дальність
-        s.target_valid = True
-        s.target_dist = 1500 + 700 * math.sin(t * 0.08)
-        s.target_hdg = (s.heading + 12 * math.sin(t * 0.3)) % 360
-        s.target_lat = s.lat + 0.004 * math.cos(t * 0.06)
-        s.target_lon = s.lon + 0.004 * math.sin(t * 0.06)
-        s.target_alt = 180 + 10 * math.sin(t * 0.1)
-        s.lat = 48.5132 + 0.0008 * math.sin(t * 0.05)
-        s.lon = 37.6680 + 0.0008 * math.cos(t * 0.05)
-        self.updated.emit(s)
 
 
 class MavlinkSource(TelemetrySource):
@@ -160,6 +124,7 @@ class MavlinkSource(TelemetrySource):
         self._master = None
         self._thread = None
         self._running = False
+        self._arm_time: float | None = None   # monotonic час моменту ARMED
         self._emit_timer = QTimer(self)
         self._emit_timer.setInterval(int(1000 / hz))
         self._emit_timer.timeout.connect(lambda: self.updated.emit(self.state))
@@ -177,18 +142,29 @@ class MavlinkSource(TelemetrySource):
 
     def _rx_loop(self) -> None:
         from pymavlink import mavutil
-        self._master = mavutil.mavlink_connection(self._conn_str)
-        self._master.wait_heartbeat(timeout=10)
-        last_msg = time.monotonic()
         while self._running:
-            msg = self._master.recv_match(blocking=True, timeout=1.0)
-            now = time.monotonic()
-            if msg is None:
-                self.state.link_online = (now - last_msg) < 3.0
+            try:
+                self._master = mavutil.mavlink_connection(self._conn_str)
+                hb = self._master.wait_heartbeat(timeout=10)
+                if hb is None:
+                    self.state.link_online = False
+                    continue
+            except Exception:
+                self.state.link_online = False
+                time.sleep(2.0)
                 continue
-            last_msg = now
-            self.state.link_online = True
-            self._apply_message(msg)
+            last_msg = time.monotonic()
+            while self._running:
+                msg = self._master.recv_match(blocking=True, timeout=1.0)
+                now = time.monotonic()
+                if msg is None:
+                    self.state.link_online = (now - last_msg) < 3.0
+                    if not self.state.link_online:
+                        break   # перепідключитись
+                    continue
+                last_msg = now
+                self.state.link_online = True
+                self._apply_message(msg)
 
     def _apply_message(self, msg) -> None:
         """Оновлює `self.state` з одного MavLink-повідомлення.
@@ -200,7 +176,15 @@ class MavlinkSource(TelemetrySource):
         t = msg.get_type()
         if t == "HEARTBEAT":
             # MAV_MODE_FLAG_SAFETY_ARMED = 128
-            s.armed = bool(msg.base_mode & 0x80)
+            now = time.monotonic()
+            newly_armed = bool(msg.base_mode & 0x80)
+            if newly_armed and not s.armed:
+                self._arm_time = now
+            elif not newly_armed:
+                self._arm_time = None
+            s.armed = newly_armed
+            if s.armed and self._arm_time is not None:
+                s.flight_time_s = int(now - self._arm_time)
             s.flight_mode = self._PLANE_MODES.get(msg.custom_mode, f"M{msg.custom_mode}")
         elif t == "VFR_HUD":
             s.airspeed = msg.airspeed
@@ -216,9 +200,19 @@ class MavlinkSource(TelemetrySource):
             s.current = msg.current_battery / 100.0         # cA -> A
             s.battery_remaining = msg.battery_remaining     # %
         elif t == "GLOBAL_POSITION_INT":
-            s.lat = msg.lat / 1e7
-            s.lon = msg.lon / 1e7
-            s.alt_rel = msg.relative_alt / 1000.0           # mm -> m
+            if msg.get_srcSystem() == 1:                    # літак
+                s.lat = msg.lat / 1e7
+                s.lon = msg.lon / 1e7
+                s.alt_rel = msg.relative_alt / 1000.0       # mm -> m
+                if s.home_lat or s.home_lon:
+                    s.dist_home = _haversine(s.lat, s.lon, s.home_lat, s.home_lon)
+                if s.gcs_lat or s.gcs_lon:
+                    s.dist_gcs = _haversine(s.lat, s.lon, s.gcs_lat, s.gcs_lon)
+            else:                                           # GCS (sysid != 1)
+                s.gcs_lat = msg.lat / 1e7
+                s.gcs_lon = msg.lon / 1e7
+                if s.lat or s.lon:
+                    s.dist_gcs = _haversine(s.lat, s.lon, s.gcs_lat, s.gcs_lon)
         elif t == "GPS_RAW_INT":
             s.gps_sats = msg.satellites_visible
             s.alt_wgs = msg.alt / 1000.0                    # mm -> m (GPS)
@@ -251,6 +245,11 @@ class MavlinkSource(TelemetrySource):
                     s.track_cy = msg.point_y
                     r = 0.0 if math.isnan(msg.radius) else msg.radius
                     s.track_w = s.track_h = max(0.02, 2 * r)
+        elif t == "HOME_POSITION":
+            s.home_lat = msg.latitude / 1e7
+            s.home_lon = msg.longitude / 1e7
+            if s.lat or s.lon:
+                s.dist_home = _haversine(s.lat, s.lon, s.home_lat, s.home_lon)
         elif t == "CAMERA_TRACKING_GEO_STATUS":
             # Геолокація цілі TRIP 5: координати + похила дальність + пеленг.
             s.target_valid = msg.tracking_status == 1 and msg.lat != 0

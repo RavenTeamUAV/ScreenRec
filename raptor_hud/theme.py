@@ -1,11 +1,21 @@
 """Кольори, шрифти та геометрія HUD у стилі NextVision OmniViewerHD."""
+import os
 from PySide6.QtGui import QColor, QFont, QFontDatabase
+
+
+def _load_custom_fonts() -> None:
+    assets = os.path.join(os.path.dirname(__file__), "assets")
+    for name in os.listdir(assets) if os.path.isdir(assets) else []:
+        if name.lower().endswith((".ttf", ".otf")):
+            QFontDatabase.addApplicationFont(os.path.join(assets, name))
+
+_load_custom_fonts()
 
 # --- Палітра -------------------------------------------------------------
 BAR_BG        = QColor(8, 8, 8, 235)      # майже чорна напівпрозора панель
 BAR_TOP_LINE  = QColor(255, 255, 255, 40) # тонка світла лінія зверху панелі
 DIVIDER       = QColor(255, 255, 255, 35) # роздільники між полями
-LABEL         = QColor(150, 150, 150)     # сірі підписи (m/s, ALT…)
+LABEL         = QColor(255, 176, 0)       # amber підписи
 VALUE         = QColor(235, 235, 235)     # білі значення
 ACCENT        = QColor(0, 200, 120)       # зелений акцент (ARMED / ONLINE / курс)
 WARN          = QColor(255, 138, 0)       # попередження (помаранчевий)
@@ -21,7 +31,7 @@ def _pick_family(candidates: list[str]) -> str:
     return "Arial"
 
 
-_COND = ["Arial Narrow", "Roboto Condensed", "Helvetica Neue", "Arial"]
+_COND = ["Eve Sans Neue Cnd", "Eve Sans Neue", "Arial Narrow", "Roboto Condensed", "Arial"]
 
 
 # Тонкий конденсований шрифт максимально близький до фірмового NextVision
@@ -37,12 +47,12 @@ def label_font(size: int) -> QFont:
     f = QFont(_pick_family(_COND))
     f.setPixelSize(size)
     f.setWeight(QFont.Weight.Normal)
-    f.setLetterSpacing(QFont.SpacingType.PercentageSpacing, 118)
+    f.setLetterSpacing(QFont.SpacingType.PercentageSpacing, 108)
     return f
 
 
 def logo_font(size: int) -> QFont:
-    f = QFont(_pick_family(["Helvetica Neue", "Arial"]))
+    f = QFont(_pick_family(["Eve Sans Neue", "Helvetica Neue", "Arial"]))
     f.setPixelSize(size)
     f.setWeight(QFont.Weight.Light)
     f.setLetterSpacing(QFont.SpacingType.PercentageSpacing, 230)
